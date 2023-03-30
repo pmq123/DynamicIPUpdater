@@ -1,0 +1,8 @@
+version: "2"
+services:
+ ipupdater:
+  image: ip-updater
+  container_name: ip-updater
+  volumes:
+   - /var/log/DynamicIPUpdater:/DynamicIPUpdater/logs
+  restart: unless-stopped
