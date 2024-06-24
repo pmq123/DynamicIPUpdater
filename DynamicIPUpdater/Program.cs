@@ -27,62 +27,55 @@ while (true)
     try
     {
         var config = GetConfig();
-        if(config != null)
-        {
-            InitConfig(config);
-            using (var client = new HttpClient())
-            {
-                client.DefaultRequestHeaders.Accept.Clear();
-                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                client.DefaultRequestHeaders.Add("X-Auth-Email", email);
-                client.DefaultRequestHeaders.Add("X-Auth-Key", key);
-
-                var needRetry = false;
-                var currentIp = await GetExternalIpAsync();
-                Log($@"currentIp: {currentIp}");
-                IPAddress address;
-                if (!string.IsNullOrWhiteSpace(currentIp) && IPAddress.TryParse(currentIp, out address))
-                {
-                    var isIpChanged = IsIpHasChanged(currentIp);
-                    if (isIpChanged)
-                    {
-                        var zoneId = await GetZoneIdAsync(client);
-                        var listDnsRecordToUpdate = await GetDnsRecordsByZoneIdAsync(client, zoneId);
-                        foreach (var dnsRecord in listDnsRecordToUpdate)
-                        {
-                            Log($@"updated DNS record:{dnsRecord["name"]} from IP {dnsRecord["content"]} to IP {currentIp}");
-                            var result = await UpdateDnsRecordAsync(client, dnsRecord, zoneId, currentIp);
-                            if (result.StatusCode != HttpStatusCode.OK)
-                            {
-                                needRetry = true;
-                                var erorMessage = await result.Content.ReadAsStringAsync();
-                                Log("Error: " + erorMessage);
-                            }
-                        }
-                        if (!needRetry)
-                        {
-                            SaveNewIp(currentIp);
-                            Log("Update completed");
-                        }
-                        else
-                        {
-                            //Todo implement retry
-                        }
-                    }
-                    else
-                    {
-                        Log("Nothing to do");
-                    }
-                }
-                else
-                {
-                    Log($@"Can't get external ip address, look like something was wrong");
-                }
-            }
-        }
-        else
+        if (config == null)
         {
             Log("Error: Missing config file");
+            continue;
+        }
+        InitConfig(config);
+        using (var client = new HttpClient())
+        {
+            client.DefaultRequestHeaders.Accept.Clear();
+            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            client.DefaultRequestHeaders.Add("X-Auth-Email", email);
+            client.DefaultRequestHeaders.Add("X-Auth-Key", key);
+
+            var needRetry = false;
+            var currentIp = await GetExternalIpAsync();
+            Log($@"currentIp: {currentIp}");
+            IPAddress address;
+            if (string.IsNullOrWhiteSpace(currentIp) || !IPAddress.TryParse(currentIp, out address))
+            {
+                Log($@"Can't get external ip address, look like something was wrong");
+                continue;
+            }
+            if(!IsIpHasChanged(currentIp))
+            {
+                Log("Nothing to do");
+                continue;
+            }
+            var zoneId = await GetZoneIdAsync(client);
+            var listDnsRecordToUpdate = await GetDnsRecordsByZoneIdAsync(client, zoneId);
+            foreach (var dnsRecord in listDnsRecordToUpdate)
+            {
+                Log($@"updated DNS record:{dnsRecord["name"]} from IP {dnsRecord["content"]} to IP {currentIp}");
+                var result = await UpdateDnsRecordAsync(client, dnsRecord, zoneId, currentIp);
+                if (result.StatusCode != HttpStatusCode.OK)
+                {
+                    needRetry = true;
+                    var erorMessage = await result.Content.ReadAsStringAsync();
+                    Log("Error: " + erorMessage);
+                }
+            }
+            if (!needRetry)
+            {
+                SaveNewIp(currentIp);
+                Log("Update completed");
+            }
+            else
+            {
+                //Todo implement retry
+            }
         }
     }
     catch (Exception ex)
@@ -151,7 +144,7 @@ async Task<List<JsonNode?>> GetDnsRecordsByZoneIdAsync(HttpClient client, string
     var getListDNSRecordUrl = $@"https://api.cloudflare.com/client/v4/zones/{zoneId}/dns_records";
     var listDNSString = await client.GetAsync(getListDNSRecordUrl).Result.Content.ReadAsStringAsync();
     var listDNS = JsonSerializer.Deserialize<JsonObject>(listDNSString);
-    var primaryDnsRecord = listDNS?["result"]?.AsArray()?.First(x => x["name"].ToString() == domain);
+    var primaryDnsRecord = listDNS?["result"]?.AsArray()?.First(x => x["zone_name"].ToString() == domain);
     var oldIp = primaryDnsRecord["content"];
     var dnsRecords = listDNS?["result"]?.AsArray()?.Where(x => x["content"].ToString() == oldIp.ToString()).ToList();
     return dnsRecords;
